@@ -6,3 +6,6 @@ supported methods
 - read/write process memory
 - open kernel mode handle 
 - get process base address
+- clear piddbcache and mmunloaded drivers
+
+credits: unknowncheats.me for all threads about drivers, ginapublic for patternscan
