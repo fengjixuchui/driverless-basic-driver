@@ -11,19 +11,17 @@ typedef unsigned __int64 uintptr_t;
 
 typedef struct info_t {
 	int pid = 0;
-	uintptr_t address;
-	uintptr_t value;
-	uintptr_t size;
+	void* address;
+	void* value;
+	size_t size;
 	void* data;
 }info, *p_info;
 
 
-#define write    CTL_CODE(FILE_DEVICE_UNKNOWN, 0xdead, METHOD_BUFFERED, FILE_SPECIAL_ACCESS)
-#define read    CTL_CODE(FILE_DEVICE_UNKNOWN, 0xdaed, METHOD_BUFFERED, FILE_SPECIAL_ACCESS)
-#define open    CTL_CODE(FILE_DEVICE_UNKNOWN, 0xdeed, METHOD_BUFFERED, FILE_SPECIAL_ACCESS)
-#define base    CTL_CODE(FILE_DEVICE_UNKNOWN, 0xdedd, METHOD_BUFFERED, FILE_SPECIAL_ACCESS)
-#define hook    CTL_CODE(FILE_DEVICE_UNKNOWN, 0xeedd, METHOD_BUFFERED, FILE_SPECIAL_ACCESS)
-#define hjack    CTL_CODE(FILE_DEVICE_UNKNOWN, 0xdeaf, METHOD_BUFFERED, FILE_SPECIAL_ACCESS)
+#define ctl_write    CTL_CODE(FILE_DEVICE_UNKNOWN, 0xdead, METHOD_BUFFERED, FILE_SPECIAL_ACCESS)
+#define ctl_read    CTL_CODE(FILE_DEVICE_UNKNOWN, 0xdaed, METHOD_BUFFERED, FILE_SPECIAL_ACCESS)
+#define ctl_open    CTL_CODE(FILE_DEVICE_UNKNOWN, 0xdeed, METHOD_BUFFERED, FILE_SPECIAL_ACCESS)
+#define ctl_base    CTL_CODE(FILE_DEVICE_UNKNOWN, 0xdedd, METHOD_BUFFERED, FILE_SPECIAL_ACCESS)
 
 #define pooltag 'dEad'
 
@@ -33,11 +31,15 @@ NTSTATUS create_io(PDEVICE_OBJECT device_obj, PIRP irp);
 NTSTATUS close_io(PDEVICE_OBJECT device_obj, PIRP irp);
 
 // memory
-void write_mem(int pid, uintptr_t* addr, uintptr_t* value, uintptr_t size);
-void read_mem(int pid, uintptr_t* addr, uintptr_t* value, uintptr_t size);
-uintptr_t occurence(uintptr_t address, size_t lenth, char *pattern, char * mask);
+void write_mem(int pid, void* addr, void* value, size_t size);
+void read_mem(int pid, void* addr, void* value, size_t size);
+uintptr_t get_kerneladdr(const char* name, size_t& size);
+uintptr_t dereference(uintptr_t address, unsigned int offset);
 HANDLE open_handle(int pid);
-NTSTATUS clean_unloaded_drivers();
+void clean_unloaded_drivers();
+void clean_piddb_cache();
+template <typename t = void*>
+t find_pattern(void* start, size_t length, const char* pattern, const char* mask);
 
 extern "C" {
 	NTKERNELAPI NTSTATUS IoCreateDriver(PUNICODE_STRING DriverName, PDRIVER_INITIALIZE InitializationFunction);

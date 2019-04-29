@@ -1,5 +1,4 @@
 #include "stdafx.h"
-
 //no reason to create our own trash just use someone else driver)
 
 // communicate with driver via readfile
@@ -32,26 +31,21 @@ NTSTATUS ctl_io(PDEVICE_OBJECT device_obj, PIRP irp) {
 	if (stack) {
 		if (buffer && sizeof(*buffer) >= sizeof(info)) {
 
-			if (stack->Parameters.DeviceIoControl.IoControlCode == read) {
-				read_mem(buffer->pid, (uintptr_t*)buffer->address, &buffer->value, buffer->size);
+			if (stack->Parameters.DeviceIoControl.IoControlCode == ctl_read) {
+				read_mem(buffer->pid, buffer->address, &buffer->value, buffer->size);
 			}
-			else if (stack->Parameters.DeviceIoControl.IoControlCode == write) {
-				write_mem(buffer->pid, (uintptr_t*)buffer->address, &buffer->value, buffer->size);
+			else if (stack->Parameters.DeviceIoControl.IoControlCode == ctl_write) {
+				write_mem(buffer->pid, buffer->address, &buffer->value, buffer->size);
 			}
-			else if (stack->Parameters.DeviceIoControl.IoControlCode == open) {
+			else if (stack->Parameters.DeviceIoControl.IoControlCode == ctl_open) {
 				buffer->data = (void*)open_handle(buffer->pid); // open kernel mode handle
 			}
-			else if (stack->Parameters.DeviceIoControl.IoControlCode == base) {
+			else if (stack->Parameters.DeviceIoControl.IoControlCode == ctl_base) {
 				PEPROCESS pe;
 				PsLookupProcessByProcessId((HANDLE)buffer->pid, &pe);
 				buffer->data = PsGetProcessSectionBaseAddress(pe); //get process base address, also can be done with zwqueryinfo + can get base addresses of modules in process
 			}
-			else if (stack->Parameters.DeviceIoControl.IoControlCode == hjack) {
-				// add thread hjack function to inject into eac\be proctected games
-			}
-			else if (stack->Parameters.DeviceIoControl.IoControlCode == hook) {
-				// use smthing like shit antivirus(avast, etc)
-			}
+	
 		}
 	}
 
@@ -106,7 +100,8 @@ NTSTATUS DriverEntry(PDRIVER_OBJECT driver_obj, PUNICODE_STRING registery_path) 
 	RtlInitUnicodeString(&drv_name, L"\\Driver\\kernelmode");
 	status = IoCreateDriver(&drv_name, &driver_initialize);
 
-	clean_unloaded_drivers();//clean up
+	clean_unloaded_drivers();// clean up
+	clean_piddb_cache();// clean up
 	return STATUS_SUCCESS;
 }
 
@@ -125,7 +120,6 @@ NTSTATUS create_io(PDEVICE_OBJECT device_obj, PIRP irp)
 	return irp->IoStatus.Status;
 }
 
-
 NTSTATUS close_io(PDEVICE_OBJECT device_obj, PIRP irp)
 {
 	UNREFERENCED_PARAMETER(device_obj);
@@ -133,8 +127,52 @@ NTSTATUS close_io(PDEVICE_OBJECT device_obj, PIRP irp)
 	return irp->IoStatus.Status;
 }
 
+// clear our driver mapper
+void clean_piddb_cache() {
+	//863E00 - PiDDBCacheTable \x48\x8D\x0D\x00\x00\x00\x00\x4C\x89\x35\x00\x00\x00\x00\x49\x8B\xE9, xxx????xxx????xxx
+	//3C8240 - PiDDBLock \x48\x8D\x0D\x00\x00\x00\x00\x48\x89\x00, xxx????xxx
+	//gay way
 
-//open handle from kernel mode
+	PERESOURCE PiDDBLock; PRTL_AVL_TABLE PiDDBCacheTable;
+
+	//PiDDBCacheTable = PRTL_AVL_TABLE(ntoskrnlBase + 0x863E00);
+	//PiDDBLock = PERESOURCE(ntoskrnlBase + 0x3C8240);
+
+	size_t size;
+	uintptr_t ntoskrnlBase = get_kerneladdr("ntoskrnl.exe", size);
+
+	PiDDBCacheTable = (PRTL_AVL_TABLE)dereference(find_pattern<uintptr_t>((void*)ntoskrnlBase, size, "\x48\x8D\x0D\x00\x00\x00\x00\x4C\x89\x35\x00\x00\x00\x00\x49\x8B\xE9", "xxx????xxx????xxx"), 3);
+	PiDDBLock = (PERESOURCE)dereference(find_pattern<uintptr_t>((void*)ntoskrnlBase, size, "\x48\x8D\x0D\x00\x00\x00\x00\x48\x89\x00", "xxx????xxx"), 3);
+	
+	DbgPrint("PiDDBCacheTable: %d", PiDDBCacheTable);
+	DbgPrint("PiDDBLock: %d", PiDDBLock);
+
+	ExAcquireResourceExclusiveLite(PiDDBLock, TRUE);
+
+	UNICODE_STRING dest_str;
+	RtlInitUnicodeString(&dest_str, L"weavetophvh.sys");
+
+	uintptr_t entry_address = uintptr_t(PiDDBCacheTable->BalancedRoot.RightChild) + sizeof(RTL_BALANCED_LINKS);
+	piddbcache* entry = (piddbcache*)(entry_address);
+
+	entry->DriverName = dest_str;
+	entry->TimeDateStamp = 0x863E1;
+
+	ULONG count = 0;
+
+	for (PLIST_ENTRY link = entry->List.Flink; link != entry->List.Blink; link = link->Flink, count++)
+	{
+		piddbcache* cache_entry = (piddbcache*)(link);
+		cache_entry->DriverName = dest_str;
+		cache_entry->TimeDateStamp = 0x863E00 + count;
+	}
+
+	// release the ddb resource lock
+	ExReleaseResourceLite(PiDDBLock);
+}
+
+
+// open handle from kernel mode
 HANDLE open_handle(int pid)
 {
 	auto status = STATUS_SUCCESS;
@@ -160,69 +198,92 @@ HANDLE open_handle(int pid)
 	return process_handle;
 }
 
+uintptr_t get_kerneladdr(const char* name, size_t& size)
+{
+	NTSTATUS status = STATUS_SUCCESS;
+	ULONG neededSize = 0;
+
+	ZwQuerySystemInformation(
+		SystemModuleInformation,
+		&neededSize,
+		0,
+		&neededSize
+	);
+
+	PSYSTEM_MODULE_INFORMATION pModuleList;
+
+	pModuleList = (PSYSTEM_MODULE_INFORMATION)ExAllocatePoolWithTag(NonPagedPool, neededSize, pooltag);
+	if (pModuleList == nullptr)
+		return (uintptr_t)nullptr;
+
+	status = ZwQuerySystemInformation(SystemModuleInformation,
+		pModuleList,
+		neededSize,
+		0
+	);
+
+	ULONG i = 0;
+	uintptr_t address = 0;
+
+	for (i = 0; i < pModuleList->ulModuleCount; i++)
+	{
+		SYSTEM_MODULE mod = pModuleList->Modules[i];
+
+		address = uintptr_t(pModuleList->Modules[i].Base);
+		size = uintptr_t(pModuleList->Modules[i].Size);
+		if (strstr(mod.ImageName, name) != NULL)
+			break;
+	}
+
+	ExFreePoolWithTag(pModuleList, pooltag);
+
+	return address;
+}
+
+
 // clear our driver mapper
-NTSTATUS clean_unloaded_drivers() {
+void clean_unloaded_drivers() {
 
 	ULONG bytes = 0;
 	auto status = ZwQuerySystemInformation(SystemModuleInformation, 0, bytes, &bytes);
 
 	if (!bytes)
-		return STATUS_UNSUCCESSFUL;
+		return;
 
 	PRTL_PROCESS_MODULES modules = (PRTL_PROCESS_MODULES)ExAllocatePoolWithTag(NonPagedPool, bytes, pooltag); // 'ENON'
 
 	status = ZwQuerySystemInformation(SystemModuleInformation, modules, bytes, &bytes);
 
-	if (!NT_SUCCESS(status))
-		return STATUS_UNSUCCESSFUL;
-
-	PRTL_PROCESS_MODULE_INFORMATION module = modules->Modules;
-	uintptr_t ntoskrnlBase = 0, ntoskrnlSize = 0;
-
-	for (ULONG i = 0; i < modules->NumberOfModules; i++)
-	{
-		if (!strcmp((char*)module[i].FullPathName, "\\SystemRoot\\system32\\ntoskrnl.exe"))
-		{
-			ntoskrnlBase = (uintptr_t)module[i].ImageBase;
-			ntoskrnlSize = (uintptr_t)module[i].ImageSize;
-			break;
-		}
+	if (!NT_SUCCESS(status)) {
+		ExFreePoolWithTag(modules, pooltag);
+		return;
 	}
 
-	if (modules)
-		ExFreePoolWithTag(modules, pooltag);
+	PRTL_PROCESS_MODULE_INFORMATION module = modules->Modules;
+	uintptr_t ntoskrnlBase = 0;
+	size_t ntoskrnlSize = 0;
+
+	ntoskrnlBase = get_kerneladdr("ntoskrnl.exe", ntoskrnlSize);
+
+	ExFreePoolWithTag(modules, pooltag);
 
 	if (ntoskrnlBase <= 0)
-		return STATUS_UNSUCCESSFUL;
+		return;
 
 	// NOTE: 4C 8B ? ? ? ? ? 4C 8B C9 4D 85 ? 74 + 3 + current signature address = MmUnloadedDrivers
-	uintptr_t mmUnloadedDriversPtr = occurence((uintptr_t)ntoskrnlBase, (uintptr_t)ntoskrnlSize, "\x4C\x8B\x00\x00\x00\x00\x00\x4C\x8B\xC9\x4D\x85\x00\x74", "xx?????xxxxx?x");
+	auto mmUnloadedDriversPtr = find_pattern<uintptr_t>((void*)ntoskrnlBase, ntoskrnlSize, "\x4C\x8B\x00\x00\x00\x00\x00\x4C\x8B\xC9\x4D\x85\x00\x74", "xx?????xxxxx?x");
+
+	DbgPrint("mmUnloadedDriversPtr: %d", mmUnloadedDriversPtr);
 
 	if (!mmUnloadedDriversPtr)
-		return STATUS_UNSUCCESSFUL;
+		return;
 
-	uintptr_t mmUnloadedDrivers = (uintptr_t)((PUCHAR)mmUnloadedDriversPtr + *(PULONG)((PUCHAR)mmUnloadedDriversPtr + 3) + 7);
-	uintptr_t bufferPtr = *(uintptr_t*)mmUnloadedDrivers;
+	uintptr_t mmUnloadedDrivers = dereference(mmUnloadedDriversPtr, 3);
 
-	// NOTE: 0x7D0 is size of the MmUnloadedDrivers array for win 7 and above
-	PVOID newBuffer = ExAllocatePoolWithTag(NonPagedPoolNx, 0x7D0, pooltag);
-
-	if (!newBuffer)
-		return STATUS_UNSUCCESSFUL;
-
-	memset(newBuffer, 0, 0x7D0);
-
-	// replace MmUnloadedDrivers
-	*(uintptr_t*)mmUnloadedDrivers = (uintptr_t)newBuffer;
-
-	// NOTE: clean the old buffer
-	ExFreePoolWithTag((PVOID)bufferPtr, 0x54446D4D); // 'MmDT'
-	ExFreePoolWithTag(newBuffer, pooltag);
-
-	return STATUS_SUCCESS;
+	memset(*(uintptr_t**)mmUnloadedDrivers, 0, 0x7D0);
 }
 
-void write_mem(int pid, uintptr_t* addr, uintptr_t* value, uintptr_t size) {
+void write_mem(int pid, void* addr, void* value, size_t size) {
 	PEPROCESS pe;
 	SIZE_T bytes;
 	PsLookupProcessByProcessId((HANDLE)pid, &pe);
@@ -230,26 +291,51 @@ void write_mem(int pid, uintptr_t* addr, uintptr_t* value, uintptr_t size) {
 	MmCopyVirtualMemory(PsGetCurrentProcess(), value, pe, addr, size, KernelMode, &bytes);
 }
 
-void read_mem(int pid, uintptr_t* addr, uintptr_t* value, uintptr_t size) {
+void read_mem(int pid, void* addr, void* value, size_t size) {
 	PEPROCESS pe;
 	SIZE_T bytes;
 	PsLookupProcessByProcessId((HANDLE)pid, &pe);
 	MmCopyVirtualMemory(pe, addr, PsGetCurrentProcess(), value, size, KernelMode, &bytes);
 }
 
-char compare(const char* data, const char* pattern, const char* mask) {
-	for (; *mask; ++mask, ++data, ++pattern)
-		if (*mask == 'x' && *data != *pattern)
-			return 0;
+template <typename t = void*> //free pasta
+t find_pattern(void* start, size_t length, const char* pattern, const char* mask)
+{
+	const auto data = static_cast<const char*>(start);
+	const auto pattern_length = strlen(mask);
 
-	return (*mask) == 0;
+	for (size_t i = 0; i <= length - pattern_length; i++)
+	{
+		bool accumulative_found = true;
+
+		for (size_t j = 0; j < pattern_length; j++)
+		{
+			if (!MmIsAddressValid(reinterpret_cast<void*>(reinterpret_cast<uintptr_t>(data) + i + j)))
+			{
+				accumulative_found = false;
+				break;
+			}
+
+			if (data[i + j] != pattern[j] && mask[j] != '?')
+			{
+				accumulative_found = false;
+				break;
+			}
+		}
+
+		if (accumulative_found)
+		{
+			return (t)(reinterpret_cast<uintptr_t>(data) + i);
+		}
+	}
+
+	return (t)nullptr;
 }
 
-// pattern scan in kernel space
-uintptr_t occurence(uintptr_t address, size_t lenth, char *pattern, char * mask) {
-	for (uintptr_t i = 0; i < lenth; i++)
-		if (compare((const char*)(address + i), pattern, mask))
-			return (uintptr_t)(address + i);
+uintptr_t dereference(uintptr_t address, unsigned int offset)
+{
+	if (address == 0)
+		return 0;
 
-	return 0;
+	return address + (int)((*(int*)(address + offset) + offset) + sizeof(int));
 }

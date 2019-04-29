@@ -348,4 +348,32 @@ typedef struct _IDINFO
 	USHORT	wReserved89[167];
 } IDINFO, *PIDINFO;
 
+typedef struct _SYSTEM_MODULE   // Information Class 11
+{
+	ULONG_PTR Reserved[2];
+	PVOID Base;
+	ULONG Size;
+	ULONG Flags;
+	USHORT Index;
+	USHORT Unknown;
+	USHORT LoadCount;
+	USHORT ModuleNameOffset;
+	CHAR ImageName[256];
+} SYSTEM_MODULE, *PSYSTEM_MODULE;
+
+typedef struct _SYSTEM_MODULE_INFORMATION   // Information Class 11
+{
+	ULONG_PTR ulModuleCount;
+	SYSTEM_MODULE Modules[1];
+} SYSTEM_MODULE_INFORMATION, *PSYSTEM_MODULE_INFORMATION;
+
+struct piddbcache
+{
+	LIST_ENTRY		List;
+	UNICODE_STRING	DriverName;
+	ULONG			TimeDateStamp;
+	NTSTATUS		LoadStatus;
+	char			_0x0028[16]; // data from the shim engine, or uninitialized memory for custom drivers
+};
+
 extern "C" extern POBJECT_TYPE *IoDriverObjectType;
