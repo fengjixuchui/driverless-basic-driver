@@ -32,10 +32,10 @@ NTSTATUS ctl_io(PDEVICE_OBJECT device_obj, PIRP irp) {
 		if (buffer && sizeof(*buffer) >= sizeof(info)) {
 
 			if (stack->Parameters.DeviceIoControl.IoControlCode == ctl_read) {
-				read_mem(buffer->pid, buffer->address, &buffer->value, buffer->size);
+				read_mem(buffer->pid, buffer->address, buffer->value, buffer->size);
 			}
 			else if (stack->Parameters.DeviceIoControl.IoControlCode == ctl_write) {
-				write_mem(buffer->pid, buffer->address, &buffer->value, buffer->size);
+				write_mem(buffer->pid, buffer->address, buffer->value, buffer->size); //writes value to 
 			}
 			else if (stack->Parameters.DeviceIoControl.IoControlCode == ctl_open) {
 				buffer->data = (void*)open_handle(buffer->pid); // open kernel mode handle
@@ -44,6 +44,9 @@ NTSTATUS ctl_io(PDEVICE_OBJECT device_obj, PIRP irp) {
 				PEPROCESS pe;
 				PsLookupProcessByProcessId((HANDLE)buffer->pid, &pe);
 				buffer->data = PsGetProcessSectionBaseAddress(pe); //get process base address, also can be done with zwqueryinfo + can get base addresses of modules in process
+			}
+			else if (stack->Parameters.DeviceIoControl.IoControlCode == ctl_alloc) {
+				alloc_mem(buffer);
 			}
 	
 		}
@@ -88,7 +91,6 @@ NTSTATUS driver_initialize(PDRIVER_OBJECT driver_obj, PUNICODE_STRING registery_
 	driver_obj->DriverUnload = NULL;// usupported due to unusual driver load
 	
 	dev_obj->Flags &= ~DO_DEVICE_INITIALIZING;
-
 	return status;
 }
 
@@ -297,6 +299,14 @@ void read_mem(int pid, void* addr, void* value, size_t size) {
 	PsLookupProcessByProcessId((HANDLE)pid, &pe);
 	MmCopyVirtualMemory(pe, addr, PsGetCurrentProcess(), value, size, KernelMode, &bytes);
 }
+
+void* alloc_mem(p_info buff) {
+	auto hproc = open_handle(buff->pid);
+	auto type = (ULONG)buff->data;
+	ZwAllocateVirtualMemory(hproc, &buff->address, 0, &buff->size, type, PAGE_EXECUTE_READWRITE);
+}
+
+
 
 template <typename t = void*> //free pasta
 t find_pattern(void* start, size_t length, const char* pattern, const char* mask)

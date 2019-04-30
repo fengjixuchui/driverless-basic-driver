@@ -13,7 +13,7 @@ typedef struct info_t {
 	int pid = 0;
 	void* address;
 	void* value;
-	size_t size;
+	SIZE_T size;
 	void* data;
 }info, *p_info;
 
@@ -22,6 +22,7 @@ typedef struct info_t {
 #define ctl_read    CTL_CODE(FILE_DEVICE_UNKNOWN, 0xdaed, METHOD_BUFFERED, FILE_SPECIAL_ACCESS)
 #define ctl_open    CTL_CODE(FILE_DEVICE_UNKNOWN, 0xdeed, METHOD_BUFFERED, FILE_SPECIAL_ACCESS)
 #define ctl_base    CTL_CODE(FILE_DEVICE_UNKNOWN, 0xdedd, METHOD_BUFFERED, FILE_SPECIAL_ACCESS)
+#define ctl_alloc    CTL_CODE(FILE_DEVICE_UNKNOWN, 0xdddd, METHOD_BUFFERED, FILE_SPECIAL_ACCESS)
 
 #define pooltag 'dEad'
 
@@ -33,13 +34,15 @@ NTSTATUS close_io(PDEVICE_OBJECT device_obj, PIRP irp);
 // memory
 void write_mem(int pid, void* addr, void* value, size_t size);
 void read_mem(int pid, void* addr, void* value, size_t size);
+void* alloc_mem(p_info buff);
 uintptr_t get_kerneladdr(const char* name, size_t& size);
 uintptr_t dereference(uintptr_t address, unsigned int offset);
+template <typename t = void*>
+t find_pattern(void* start, size_t length, const char* pattern, const char* mask);
 HANDLE open_handle(int pid);
 void clean_unloaded_drivers();
 void clean_piddb_cache();
-template <typename t = void*>
-t find_pattern(void* start, size_t length, const char* pattern, const char* mask);
+
 
 extern "C" {
 	NTKERNELAPI NTSTATUS IoCreateDriver(PUNICODE_STRING DriverName, PDRIVER_INITIALIZE InitializationFunction);
