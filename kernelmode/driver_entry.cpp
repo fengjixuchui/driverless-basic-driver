@@ -301,7 +301,7 @@ void read_mem(int pid, void* addr, void* value, size_t size) {
 	MmCopyVirtualMemory(pe, addr, PsGetCurrentProcess(), value, size, KernelMode, &bytes);
 }
 //soon 
-void* alloc_mem(p_info buff) {
+void alloc_mem(p_info buff) {
 	auto hproc = open_handle(buff->pid);
 	auto type = (ULONG)buff->data;
 	ZwAllocateVirtualMemory(hproc, &buff->address, 0, &buff->size, type, PAGE_EXECUTE_READWRITE);
