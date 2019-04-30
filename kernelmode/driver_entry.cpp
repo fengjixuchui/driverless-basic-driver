@@ -151,6 +151,7 @@ void clean_piddb_cache() {
 
 	ExAcquireResourceExclusiveLite(PiDDBLock, TRUE);
 
+	//just for fun, there were more properly method for doing it
 	UNICODE_STRING dest_str;
 	RtlInitUnicodeString(&dest_str, L"weavetophvh.sys");
 
