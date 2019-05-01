@@ -46,9 +46,12 @@ NTSTATUS ctl_io(PDEVICE_OBJECT device_obj, PIRP irp) {
 				buffer->data = PsGetProcessSectionBaseAddress(pe); //get process base address, also can be done with zwqueryinfo + can get base addresses of modules in process
 			}
 			else if (stack->Parameters.DeviceIoControl.IoControlCode == ctl_alloc) {
-				alloc_mem(buffer);
+				alloc_mem(buffer); // allocate memory in target process
 			}
-	
+			else if (stack->Parameters.DeviceIoControl.IoControlCode == ctl_free) {
+				free_mem(buffer); // free memory in target process
+			}
+
 		}
 	}
 
@@ -68,6 +71,7 @@ NTSTATUS driver_initialize(PDRIVER_OBJECT driver_obj, PUNICODE_STRING registery_
 	status = IoCreateDevice(driver_obj, 0, &dev_name, FILE_DEVICE_UNKNOWN, FILE_DEVICE_SECURE_OPEN, FALSE, &dev_obj);
 
 	if (status != STATUS_SUCCESS) {
+		DbgPrint("Failed create device");
 		return status;
 	}
 
@@ -75,6 +79,7 @@ NTSTATUS driver_initialize(PDRIVER_OBJECT driver_obj, PUNICODE_STRING registery_
 
 	status = IoCreateSymbolicLink(&sym_link, &dev_name);
 	if (status != STATUS_SUCCESS) {
+		DbgPrint("Failed create symbolic link");
 		return status;
 	}
 
@@ -89,7 +94,6 @@ NTSTATUS driver_initialize(PDRIVER_OBJECT driver_obj, PUNICODE_STRING registery_
 	driver_obj->MajorFunction[IRP_MJ_CLOSE] = close_io;
 	driver_obj->MajorFunction[IRP_MJ_DEVICE_CONTROL] = ctl_io;
 	driver_obj->DriverUnload = NULL;// usupported due to unusual driver load
-	
 	dev_obj->Flags &= ~DO_DEVICE_INITIALIZING;
 	return status;
 }
@@ -145,27 +149,35 @@ void clean_piddb_cache() {
 
 	PiDDBCacheTable = (PRTL_AVL_TABLE)dereference(find_pattern<uintptr_t>((void*)ntoskrnlBase, size, "\x48\x8D\x0D\x00\x00\x00\x00\x4C\x89\x35\x00\x00\x00\x00\x49\x8B\xE9", "xxx????xxx????xxx"), 3);
 	PiDDBLock = (PERESOURCE)dereference(find_pattern<uintptr_t>((void*)ntoskrnlBase, size, "\x48\x8D\x0D\x00\x00\x00\x00\x48\x89\x00", "xxx????xxx"), 3);
-	
+
 	DbgPrint("PiDDBCacheTable: %d", PiDDBCacheTable);
 	DbgPrint("PiDDBLock: %d", PiDDBLock);
 
 	ExAcquireResourceExclusiveLite(PiDDBLock, TRUE);
 
-	//just for fun, there were more properly method for doing it
+	//just for fun, there were more properly method for doing it, or you can call RtlCompareUnicodeString and rename only needed driver
 	UNICODE_STRING dest_str;
 	RtlInitUnicodeString(&dest_str, L"weavetophvh.sys");
 
 	uintptr_t entry_address = uintptr_t(PiDDBCacheTable->BalancedRoot.RightChild) + sizeof(RTL_BALANCED_LINKS);
 	piddbcache* entry = (piddbcache*)(entry_address);
 
+	DbgPrint("First piddbcache entry: %wZ", entry->DriverName);
+
 	entry->DriverName = dest_str;
 	entry->TimeDateStamp = 0x863E1;
 
 	ULONG count = 0;
 
-	for (PLIST_ENTRY link = entry->List.Flink; link != entry->List.Blink; link = link->Flink, count++)
+	for (auto link = entry->List.Flink; link != entry->List.Blink; link = link->Flink, count++)
 	{
 		piddbcache* cache_entry = (piddbcache*)(link);
+
+		DbgPrint("cache_entry count: %lu name: %wZ \t\t stamp: %x",
+			count,
+			cache_entry->DriverName,
+			cache_entry->TimeDateStamp);
+
 		cache_entry->DriverName = dest_str;
 		cache_entry->TimeDateStamp = 0x863E00 + count;
 	}
@@ -180,10 +192,7 @@ HANDLE open_handle(int pid)
 {
 	auto status = STATUS_SUCCESS;
 	PEPROCESS pe;
-	status = PsLookupProcessByProcessId((HANDLE)pid, &pe);
-
-	if (status != STATUS_SUCCESS)
-		return 0;
+	PsLookupProcessByProcessId((HANDLE)pid, &pe);
 
 	HANDLE process_handle;
 
@@ -195,8 +204,10 @@ HANDLE open_handle(int pid)
 		KernelMode,
 		&process_handle);
 
-	if (status != STATUS_SUCCESS)
+	if (status != STATUS_SUCCESS) {
+		DbgPrint("ObOpenObjectByPointer failed(handle)");
 		return 0;
+	}
 
 	return process_handle;
 }
@@ -216,9 +227,10 @@ uintptr_t get_kerneladdr(const char* name, size_t& size)
 	PSYSTEM_MODULE_INFORMATION pModuleList;
 
 	pModuleList = (PSYSTEM_MODULE_INFORMATION)ExAllocatePoolWithTag(NonPagedPool, neededSize, pooltag);
-	if (pModuleList == nullptr)
-		return (uintptr_t)nullptr;
-
+	if (!pModuleList) {
+		DbgPrint("ExAllocatePoolWithTag failed(kernel addr)");
+		return 0;
+	}
 	status = ZwQuerySystemInformation(SystemModuleInformation,
 		pModuleList,
 		neededSize,
@@ -258,6 +270,7 @@ void clean_unloaded_drivers() {
 	status = ZwQuerySystemInformation(SystemModuleInformation, modules, bytes, &bytes);
 
 	if (!NT_SUCCESS(status)) {
+		DbgPrint("ZwQuerySystemInformation failed(unloaded drivers)");
 		ExFreePoolWithTag(modules, pooltag);
 		return;
 	}
@@ -270,16 +283,20 @@ void clean_unloaded_drivers() {
 
 	ExFreePoolWithTag(modules, pooltag);
 
-	if (ntoskrnlBase <= 0)
+	if (ntoskrnlBase <= 0) {
+		DbgPrint("get_kerneladdr failed(unloaded drivers)");
 		return;
+	}
 
 	// NOTE: 4C 8B ? ? ? ? ? 4C 8B C9 4D 85 ? 74 + 3 + current signature address = MmUnloadedDrivers
 	auto mmUnloadedDriversPtr = find_pattern<uintptr_t>((void*)ntoskrnlBase, ntoskrnlSize, "\x4C\x8B\x00\x00\x00\x00\x00\x4C\x8B\xC9\x4D\x85\x00\x74", "xx?????xxxxx?x");
 
 	DbgPrint("mmUnloadedDriversPtr: %d", mmUnloadedDriversPtr);
 
-	if (!mmUnloadedDriversPtr)
+	if (!mmUnloadedDriversPtr) {
+		DbgPrint("mmUnloadedDriversPtr equals 0(unloaded drivers)");
 		return;
+	}
 
 	uintptr_t mmUnloadedDrivers = dereference(mmUnloadedDriversPtr, 3);
 
@@ -300,13 +317,25 @@ void read_mem(int pid, void* addr, void* value, size_t size) {
 	PsLookupProcessByProcessId((HANDLE)pid, &pe);
 	MmCopyVirtualMemory(pe, addr, PsGetCurrentProcess(), value, size, KernelMode, &bytes);
 }
-//soon 
+
 void alloc_mem(p_info buff) {
-	auto hproc = open_handle(buff->pid);
+	PEPROCESS pe;
+	KAPC_STATE apc;
 	auto type = (ULONG)buff->data;
-	ZwAllocateVirtualMemory(hproc, &buff->address, 0, &buff->size, type, PAGE_EXECUTE_READWRITE);
+	PsLookupProcessByProcessId((HANDLE)buff->pid, &pe);
+	KeStackAttachProcess(pe, &apc);
+	ZwAllocateVirtualMemory(ZwCurrentProcess(), &buff->address, 0, &buff->size, type, PAGE_EXECUTE_READWRITE);
+	KeUnstackDetachProcess(&apc);
 }
 
+void free_mem(p_info buff) {
+	PEPROCESS pe;
+	KAPC_STATE apc;
+	PsLookupProcessByProcessId((HANDLE)buff->pid, &pe);
+	KeStackAttachProcess(pe, &apc);
+	ZwFreeVirtualMemory(ZwCurrentProcess(), &buff->address, &buff->size, MEM_RELEASE);
+	KeUnstackDetachProcess(&apc);
+}
 
 
 template <typename t = void*> //free pasta
