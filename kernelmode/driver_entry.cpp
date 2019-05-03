@@ -139,7 +139,8 @@ void clean_piddb_cache() {
 	//3C8240 - PiDDBLock \x48\x8D\x0D\x00\x00\x00\x00\x48\x89\x00, xxx????xxx
 	//gay way
 
-	PERESOURCE PiDDBLock; PRTL_AVL_TABLE PiDDBCacheTable;
+	//PERESOURCE PiDDBLock; 
+	PRTL_AVL_TABLE PiDDBCacheTable;
 
 	//PiDDBCacheTable = PRTL_AVL_TABLE(ntoskrnlBase + 0x863E00);
 	//PiDDBLock = PERESOURCE(ntoskrnlBase + 0x3C8240);
@@ -147,22 +148,48 @@ void clean_piddb_cache() {
 	size_t size;
 	uintptr_t ntoskrnlBase = get_kerneladdr("ntoskrnl.exe", size);
 
+	DbgPrint("ntoskrnl.exe: %d\n", ntoskrnlBase);
+	DbgPrint("ntoskrnl.exe size: %d\n", size);
+
 	PiDDBCacheTable = (PRTL_AVL_TABLE)dereference(find_pattern<uintptr_t>((void*)ntoskrnlBase, size, "\x48\x8D\x0D\x00\x00\x00\x00\x4C\x89\x35\x00\x00\x00\x00\x49\x8B\xE9", "xxx????xxx????xxx"), 3);
-	PiDDBLock = (PERESOURCE)dereference(find_pattern<uintptr_t>((void*)ntoskrnlBase, size, "\x48\x8D\x0D\x00\x00\x00\x00\x48\x89\x00", "xxx????xxx"), 3);
+	//PiDDBLock = (PERESOURCE)dereference(find_pattern<uintptr_t>((void*)ntoskrnlBase, size, "\x48\x89\x1D\x00\x00\x00\x00\x48\x8D\x0D\x00\x00\x00\x00\xE8\x00\x00\x00\x00\x65\x48\x8B\x0C\x25\x00\x00\x00\x00", "xxx????xxx????x????xxxxx????"), 3); //valid pattern, but returns 0
 
-	DbgPrint("PiDDBCacheTable: %d", PiDDBCacheTable);
-	DbgPrint("PiDDBLock: %d", PiDDBLock);
+	DbgPrint("PiDDBCacheTable: %d\n", PiDDBCacheTable);
+	//DbgPrint("PiDDBLock: %d\n", PiDDBLock);
 
-	ExAcquireResourceExclusiveLite(PiDDBLock, TRUE);
+	if (!PiDDBCacheTable /*|| !PiDDBLock*/) {
+		DbgPrint("PiDDBCacheTable or PiDDBLock  failed(clean_piddb_cache)\n");
+
+		//if (!PiDDBLock)
+		//	PiDDBLock = PERESOURCE(ntoskrnlBase + 0x3C8240); //static offset
+		if (!PiDDBCacheTable)
+			PiDDBCacheTable = PRTL_AVL_TABLE(ntoskrnlBase + 0x863E00); //static offset
+
+		DbgPrint("PiDDBCacheTable: %d\n", PiDDBCacheTable);
+		//DbgPrint("PiDDBLock: %d\n", PiDDBLock);
+
+		if (!PiDDBCacheTable /*|| !PiDDBLock*/) {
+			DbgPrint("PiDDBCacheTable or PiDDBLock  failed 2(clean_piddb_cache)\n");
+		}
+	}
+
+	//ExAcquireResourceExclusiveLite(PiDDBLock, TRUE);
+
+	//DbgPrint("ExAcquireResourceExclusiveLite: %d\n", PiDDBLock);
 
 	//just for fun, there were more properly method for doing it, or you can call RtlCompareUnicodeString and rename only needed driver
 	UNICODE_STRING dest_str;
 	RtlInitUnicodeString(&dest_str, L"weavetophvh.sys");
 
+
+
 	uintptr_t entry_address = uintptr_t(PiDDBCacheTable->BalancedRoot.RightChild) + sizeof(RTL_BALANCED_LINKS);
+
+	DbgPrint("entry_address: %d\n", entry_address);
+
 	piddbcache* entry = (piddbcache*)(entry_address);
 
-	DbgPrint("First piddbcache entry: %wZ", entry->DriverName);
+	DbgPrint("First piddbcache entry: %wZ\n", entry->DriverName);
 
 	entry->DriverName = dest_str;
 	entry->TimeDateStamp = 0x863E1;
@@ -173,7 +200,7 @@ void clean_piddb_cache() {
 	{
 		piddbcache* cache_entry = (piddbcache*)(link);
 
-		DbgPrint("cache_entry count: %lu name: %wZ \t\t stamp: %x",
+		DbgPrint("cache_entry count: %lu name: %wZ \t\t stamp: %x\n",
 			count,
 			cache_entry->DriverName,
 			cache_entry->TimeDateStamp);
@@ -183,7 +210,7 @@ void clean_piddb_cache() {
 	}
 
 	// release the ddb resource lock
-	ExReleaseResourceLite(PiDDBLock);
+	//ExReleaseResourceLite(PiDDBLock);
 }
 
 
@@ -205,7 +232,7 @@ HANDLE open_handle(int pid)
 		&process_handle);
 
 	if (status != STATUS_SUCCESS) {
-		DbgPrint("ObOpenObjectByPointer failed(handle)");
+		DbgPrint("ObOpenObjectByPointer failed(handle)\n");
 		return 0;
 	}
 
@@ -227,10 +254,12 @@ uintptr_t get_kerneladdr(const char* name, size_t& size)
 	PSYSTEM_MODULE_INFORMATION pModuleList;
 
 	pModuleList = (PSYSTEM_MODULE_INFORMATION)ExAllocatePoolWithTag(NonPagedPool, neededSize, pooltag);
+
 	if (!pModuleList) {
-		DbgPrint("ExAllocatePoolWithTag failed(kernel addr)");
+		DbgPrint("ExAllocatePoolWithTag failed(kernel addr)\n");
 		return 0;
 	}
+
 	status = ZwQuerySystemInformation(SystemModuleInformation,
 		pModuleList,
 		neededSize,
@@ -270,7 +299,7 @@ void clean_unloaded_drivers() {
 	status = ZwQuerySystemInformation(SystemModuleInformation, modules, bytes, &bytes);
 
 	if (!NT_SUCCESS(status)) {
-		DbgPrint("ZwQuerySystemInformation failed(unloaded drivers)");
+		DbgPrint("ZwQuerySystemInformation failed(unloaded drivers)\n");
 		ExFreePoolWithTag(modules, pooltag);
 		return;
 	}
@@ -284,17 +313,17 @@ void clean_unloaded_drivers() {
 	ExFreePoolWithTag(modules, pooltag);
 
 	if (ntoskrnlBase <= 0) {
-		DbgPrint("get_kerneladdr failed(unloaded drivers)");
+		DbgPrint("get_kerneladdr failed(unloaded drivers)\n");
 		return;
 	}
 
 	// NOTE: 4C 8B ? ? ? ? ? 4C 8B C9 4D 85 ? 74 + 3 + current signature address = MmUnloadedDrivers
 	auto mmUnloadedDriversPtr = find_pattern<uintptr_t>((void*)ntoskrnlBase, ntoskrnlSize, "\x4C\x8B\x00\x00\x00\x00\x00\x4C\x8B\xC9\x4D\x85\x00\x74", "xx?????xxxxx?x");
 
-	DbgPrint("mmUnloadedDriversPtr: %d", mmUnloadedDriversPtr);
+	DbgPrint("mmUnloadedDriversPtr: %d\n", mmUnloadedDriversPtr);
 
 	if (!mmUnloadedDriversPtr) {
-		DbgPrint("mmUnloadedDriversPtr equals 0(unloaded drivers)");
+		DbgPrint("mmUnloadedDriversPtr equals 0(unloaded drivers)\n");
 		return;
 	}
 
