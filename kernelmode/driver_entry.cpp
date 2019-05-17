@@ -118,16 +118,14 @@ NTSTATUS unsupported_io(PDEVICE_OBJECT device_obj, PIRP irp) {
 	return irp->IoStatus.Status;
 }
 
-NTSTATUS create_io(PDEVICE_OBJECT device_obj, PIRP irp)
-{
+NTSTATUS create_io(PDEVICE_OBJECT device_obj, PIRP irp) {
 	UNREFERENCED_PARAMETER(device_obj);
 
 	IoCompleteRequest(irp, IO_NO_INCREMENT);
 	return irp->IoStatus.Status;
 }
 
-NTSTATUS close_io(PDEVICE_OBJECT device_obj, PIRP irp)
-{
+NTSTATUS close_io(PDEVICE_OBJECT device_obj, PIRP irp) {
 	UNREFERENCED_PARAMETER(device_obj);
 	IoCompleteRequest(irp, IO_NO_INCREMENT);
 	return irp->IoStatus.Status;
@@ -231,8 +229,7 @@ HANDLE open_handle(int pid)
 	return process_handle;
 }
 
-uintptr_t get_kerneladdr(const char* name, size_t& size)
-{
+uintptr_t get_kerneladdr(const char* name, size_t& size) {
 	NTSTATUS status = STATUS_SUCCESS;
 	ULONG neededSize = 0;
 
@@ -359,8 +356,7 @@ void free_mem(p_info buff) {
 \
 
 template <typename t = void*> //free pasta
-t find_pattern(void* start, size_t length, const char* pattern, const char* mask)
-{
+t find_pattern(void* start, size_t length, const char* pattern, const char* mask) {
 	const auto data = static_cast<const char*>(start);
 	const auto pattern_length = strlen(mask);
 
@@ -392,8 +388,7 @@ t find_pattern(void* start, size_t length, const char* pattern, const char* mask
 	return (t)nullptr;
 }
 
-uintptr_t dereference(uintptr_t address, unsigned int offset)
-{
+uintptr_t dereference(uintptr_t address, unsigned int offset) {
 	if (address == 0)
 		return 0;
 
