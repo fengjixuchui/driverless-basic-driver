@@ -139,7 +139,7 @@ void clean_piddb_cache() {
 	//3C8240 - PiDDBLock \x48\x8D\x0D\x00\x00\x00\x00\x48\x89\x00, xxx????xxx
 	//gay way
 
-	//PERESOURCE PiDDBLock; 
+	PERESOURCE PiDDBLock; 
 	PRTL_AVL_TABLE PiDDBCacheTable;
 
 	//PiDDBCacheTable = PRTL_AVL_TABLE(ntoskrnlBase + 0x863E00);
@@ -152,47 +152,40 @@ void clean_piddb_cache() {
 	DbgPrint("ntoskrnl.exe size: %d\n", size);
 
 	PiDDBCacheTable = (PRTL_AVL_TABLE)dereference(find_pattern<uintptr_t>((void*)ntoskrnlBase, size, "\x48\x8D\x0D\x00\x00\x00\x00\x4C\x89\x35\x00\x00\x00\x00\x49\x8B\xE9", "xxx????xxx????xxx"), 3);
-	//PiDDBLock = (PERESOURCE)dereference(find_pattern<uintptr_t>((void*)ntoskrnlBase, size, "\x48\x89\x1D\x00\x00\x00\x00\x48\x8D\x0D\x00\x00\x00\x00\xE8\x00\x00\x00\x00\x65\x48\x8B\x0C\x25\x00\x00\x00\x00", "xxx????xxx????x????xxxxx????"), 3); //valid pattern, but returns 0
+	PiDDBLock = (PERESOURCE)dereference(find_pattern<uintptr_t>((void*)ntoskrnlBase, size, "\x48\x89\x1D\x00\x00\x00\x00\x48\x8D\x0D\x00\x00\x00\x00\xE8\x00\x00\x00\x00\x65\x48\x8B\x0C\x25\x00\x00\x00\x00", "xxx????xxx????x????xxxxx????"), 3); //valid pattern, but returns 0
 
 	DbgPrint("PiDDBCacheTable: %d\n", PiDDBCacheTable);
-	//DbgPrint("PiDDBLock: %d\n", PiDDBLock);
+	DbgPrint("PiDDBLock: %d\n", PiDDBLock);
 
-	if (!PiDDBCacheTable /*|| !PiDDBLock*/) {
+	if (!PiDDBCacheTable || !PiDDBLock) {
 		DbgPrint("PiDDBCacheTable or PiDDBLock  failed(clean_piddb_cache)\n");
 
-		//if (!PiDDBLock)
-		//	PiDDBLock = PERESOURCE(ntoskrnlBase + 0x3C8240); //static offset
+		if (!PiDDBLock)
+			PiDDBLock = PERESOURCE(ntoskrnlBase + 0x3C8240); //static offset
 		if (!PiDDBCacheTable)
 			PiDDBCacheTable = PRTL_AVL_TABLE(ntoskrnlBase + 0x863E00); //static offset
 
 		DbgPrint("PiDDBCacheTable: %d\n", PiDDBCacheTable);
-		//DbgPrint("PiDDBLock: %d\n", PiDDBLock);
+		DbgPrint("PiDDBLock: %d\n", PiDDBLock);
 
-		if (!PiDDBCacheTable /*|| !PiDDBLock*/) {
+		if (!PiDDBCacheTable || !PiDDBLock) {
 			DbgPrint("PiDDBCacheTable or PiDDBLock  failed 2(clean_piddb_cache)\n");
 		}
 	}
 
-	//ExAcquireResourceExclusiveLite(PiDDBLock, TRUE);
-
-	//DbgPrint("ExAcquireResourceExclusiveLite: %d\n", PiDDBLock);
-
-	//just for fun, there were more properly method for doing it, or you can call RtlCompareUnicodeString and rename only needed driver
-	UNICODE_STRING dest_str;
-	RtlInitUnicodeString(&dest_str, L"weavetophvh.sys");
-
-
+	DbgPrint("PiDDBLock: %d\n", PiDDBLock);
 
 	uintptr_t entry_address = uintptr_t(PiDDBCacheTable->BalancedRoot.RightChild) + sizeof(RTL_BALANCED_LINKS);
-
 	DbgPrint("entry_address: %d\n", entry_address);
 
 	piddbcache* entry = (piddbcache*)(entry_address);
-
 	DbgPrint("First piddbcache entry: %wZ\n", entry->DriverName);
 
-	entry->DriverName = dest_str;
-	entry->TimeDateStamp = 0x863E1;
+	/*capcom.sys(drvmap) : 0x57CD1415 iqvw64e.sys(kdmapper) : 0x5284EAC3, also cpuz driver*/
+	if (entry->TimeDateStamp == 0x57CD1415 || entry->TimeDateStamp == 0x5284EAC3) {
+		entry->TimeDateStamp = 0x54EAC3;
+		entry->DriverName = RTL_CONSTANT_STRING(L"monitor.sys");
+	}
 
 	ULONG count = 0;
 
@@ -205,12 +198,11 @@ void clean_piddb_cache() {
 			cache_entry->DriverName,
 			cache_entry->TimeDateStamp);
 
-		cache_entry->DriverName = dest_str;
-		cache_entry->TimeDateStamp = 0x863E00 + count;
+		if (cache_entry->TimeDateStamp == 0x57CD1415 || cache_entry->TimeDateStamp == 0x5284EAC3) {
+			cache_entry->TimeDateStamp = 0x54EAC4 + count;
+			entry->DriverName = RTL_CONSTANT_STRING(L"monitor.sys");
+		}
 	}
-
-	// release the ddb resource lock
-	//ExReleaseResourceLite(PiDDBLock);
 }
 
 
@@ -294,7 +286,7 @@ void clean_unloaded_drivers() {
 	if (!bytes)
 		return;
 
-	PRTL_PROCESS_MODULES modules = (PRTL_PROCESS_MODULES)ExAllocatePoolWithTag(NonPagedPool, bytes, pooltag); // 'ENON'
+	PRTL_PROCESS_MODULES modules = (PRTL_PROCESS_MODULES)ExAllocatePoolWithTag(NonPagedPool, bytes, pooltag);
 
 	status = ZwQuerySystemInformation(SystemModuleInformation, modules, bytes, &bytes);
 
@@ -336,7 +328,6 @@ void write_mem(int pid, void* addr, void* value, size_t size) {
 	PEPROCESS pe;
 	SIZE_T bytes;
 	PsLookupProcessByProcessId((HANDLE)pid, &pe);
-
 	MmCopyVirtualMemory(PsGetCurrentProcess(), value, pe, addr, size, KernelMode, &bytes);
 }
 
@@ -365,7 +356,7 @@ void free_mem(p_info buff) {
 	ZwFreeVirtualMemory(ZwCurrentProcess(), &buff->address, &buff->size, MEM_RELEASE);
 	KeUnstackDetachProcess(&apc);
 }
-
+\
 
 template <typename t = void*> //free pasta
 t find_pattern(void* start, size_t length, const char* pattern, const char* mask)
