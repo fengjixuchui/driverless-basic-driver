@@ -220,7 +220,9 @@ HANDLE open_handle(int pid)
 		*PsProcessType,
 		KernelMode,
 		&process_handle);
-
+	
+	ObfDereferenceObject(pe);
+	
 	if (status != STATUS_SUCCESS) {
 		DbgPrint("ObOpenObjectByPointer failed(handle)\n");
 		return 0;
@@ -326,6 +328,7 @@ void write_mem(int pid, void* addr, void* value, size_t size) {
 	SIZE_T bytes;
 	PsLookupProcessByProcessId((HANDLE)pid, &pe);
 	MmCopyVirtualMemory(PsGetCurrentProcess(), value, pe, addr, size, KernelMode, &bytes);
+	ObfDereferenceObject(pe);
 }
 
 void read_mem(int pid, void* addr, void* value, size_t size) {
@@ -333,6 +336,7 @@ void read_mem(int pid, void* addr, void* value, size_t size) {
 	SIZE_T bytes;
 	PsLookupProcessByProcessId((HANDLE)pid, &pe);
 	MmCopyVirtualMemory(pe, addr, PsGetCurrentProcess(), value, size, KernelMode, &bytes);
+	ObfDereferenceObject(pe);
 }
 
 void alloc_mem(p_info buff) {
@@ -343,6 +347,7 @@ void alloc_mem(p_info buff) {
 	KeStackAttachProcess(pe, &apc);
 	ZwAllocateVirtualMemory(ZwCurrentProcess(), &buff->address, 0, &buff->size, type, PAGE_EXECUTE_READWRITE);
 	KeUnstackDetachProcess(&apc);
+	ObfDereferenceObject(pe);
 }
 
 void free_mem(p_info buff) {
@@ -352,6 +357,7 @@ void free_mem(p_info buff) {
 	KeStackAttachProcess(pe, &apc);
 	ZwFreeVirtualMemory(ZwCurrentProcess(), &buff->address, &buff->size, MEM_RELEASE);
 	KeUnstackDetachProcess(&apc);
+	ObfDereferenceObject(pe);
 }
 \
 
