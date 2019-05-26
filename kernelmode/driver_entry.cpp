@@ -359,7 +359,7 @@ void free_mem(p_info buff) {
 	KeUnstackDetachProcess(&apc);
 	ObfDereferenceObject(pe);
 }
-\
+
 
 template <typename t = void*> //free pasta
 t find_pattern(void* start, size_t length, const char* pattern, const char* mask) {
