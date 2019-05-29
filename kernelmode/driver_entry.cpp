@@ -133,15 +133,7 @@ NTSTATUS close_io(PDEVICE_OBJECT device_obj, PIRP irp) {
 
 // clear our driver mapper
 void clean_piddb_cache() {
-	//863E00 - PiDDBCacheTable \x48\x8D\x0D\x00\x00\x00\x00\x4C\x89\x35\x00\x00\x00\x00\x49\x8B\xE9, xxx????xxx????xxx
-	//3C8240 - PiDDBLock \x48\x8D\x0D\x00\x00\x00\x00\x48\x89\x00, xxx????xxx
-	//gay way
-
-	PERESOURCE PiDDBLock; 
 	PRTL_AVL_TABLE PiDDBCacheTable;
-
-	//PiDDBCacheTable = PRTL_AVL_TABLE(ntoskrnlBase + 0x863E00);
-	//PiDDBLock = PERESOURCE(ntoskrnlBase + 0x3C8240);
 
 	size_t size;
 	uintptr_t ntoskrnlBase = get_kerneladdr("ntoskrnl.exe", size);
@@ -150,44 +142,17 @@ void clean_piddb_cache() {
 	DbgPrint("ntoskrnl.exe size: %d\n", size);
 
 	PiDDBCacheTable = (PRTL_AVL_TABLE)dereference(find_pattern<uintptr_t>((void*)ntoskrnlBase, size, "\x48\x8D\x0D\x00\x00\x00\x00\x4C\x89\x35\x00\x00\x00\x00\x49\x8B\xE9", "xxx????xxx????xxx"), 3);
-	PiDDBLock = (PERESOURCE)dereference(find_pattern<uintptr_t>((void*)ntoskrnlBase, size, "\x48\x89\x1D\x00\x00\x00\x00\x48\x8D\x0D\x00\x00\x00\x00\xE8\x00\x00\x00\x00\x65\x48\x8B\x0C\x25\x00\x00\x00\x00", "xxx????xxx????x????xxxxx????"), 3); //valid pattern, but returns 0
 
 	DbgPrint("PiDDBCacheTable: %d\n", PiDDBCacheTable);
-	DbgPrint("PiDDBLock: %d\n", PiDDBLock);
-
-	if (!PiDDBCacheTable || !PiDDBLock) {
-		DbgPrint("PiDDBCacheTable or PiDDBLock  failed(clean_piddb_cache)\n");
-
-		if (!PiDDBLock)
-			PiDDBLock = PERESOURCE(ntoskrnlBase + 0x3C8240); //static offset
-		if (!PiDDBCacheTable)
-			PiDDBCacheTable = PRTL_AVL_TABLE(ntoskrnlBase + 0x863E00); //static offset
-
-		DbgPrint("PiDDBCacheTable: %d\n", PiDDBCacheTable);
-		DbgPrint("PiDDBLock: %d\n", PiDDBLock);
-
-		if (!PiDDBCacheTable || !PiDDBLock) {
-			DbgPrint("PiDDBCacheTable or PiDDBLock  failed 2(clean_piddb_cache)\n");
-		}
-	}
-
-	DbgPrint("PiDDBLock: %d\n", PiDDBLock);
 
 	uintptr_t entry_address = uintptr_t(PiDDBCacheTable->BalancedRoot.RightChild) + sizeof(RTL_BALANCED_LINKS);
 	DbgPrint("entry_address: %d\n", entry_address);
-
+	
 	piddbcache* entry = (piddbcache*)(entry_address);
-	DbgPrint("First piddbcache entry: %wZ\n", entry->DriverName);
 
 	/*capcom.sys(drvmap) : 0x57CD1415 iqvw64e.sys(kdmapper) : 0x5284EAC3, also cpuz driver*/
-	if (entry->TimeDateStamp == 0x57CD1415 || entry->TimeDateStamp == 0x5284EAC3) {
-		entry->TimeDateStamp = 0x54EAC3;
-		entry->DriverName = RTL_CONSTANT_STRING(L"monitor.sys");
-	}
-
 	ULONG count = 0;
-
-	for (auto link = entry->List.Flink; link != entry->List.Blink; link = link->Flink, count++)
+	for (auto link = entry; link != entry->List.Blink; link = link->Flink, count++)
 	{
 		piddbcache* cache_entry = (piddbcache*)(link);
 
