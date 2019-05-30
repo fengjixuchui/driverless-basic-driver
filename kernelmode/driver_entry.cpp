@@ -151,8 +151,13 @@ void clean_piddb_cache() {
 	piddbcache* entry = (piddbcache*)(entry_address);
 
 	/*capcom.sys(drvmap) : 0x57CD1415 iqvw64e.sys(kdmapper) : 0x5284EAC3, also cpuz driver*/
+	if (entry->TimeDateStamp == 0x57CD1415 || entry->TimeDateStamp == 0x5284EAC3) {
+		entry->TimeDateStamp = 0x54EAC3;
+		entry->DriverName = RTL_CONSTANT_STRING(L"monitor.sys");
+	}
+
 	ULONG count = 0;
-	for (auto link = entry; link != entry->List.Blink; link = link->Flink, count++)
+	for (auto link = entry->List.Flink; link != entry->List.Blink; link = link->Flink, count++)
 	{
 		piddbcache* cache_entry = (piddbcache*)(link);
 
