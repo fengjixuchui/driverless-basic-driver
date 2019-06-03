@@ -44,6 +44,7 @@ NTSTATUS ctl_io(PDEVICE_OBJECT device_obj, PIRP irp) {
 				PEPROCESS pe;
 				PsLookupProcessByProcessId((HANDLE)buffer->pid, &pe);
 				buffer->data = PsGetProcessSectionBaseAddress(pe); //get process base address, also can be done with zwqueryinfo + can get base addresses of modules in process
+				ObfDereferenceObject(pe);
 			}
 			else if (stack->Parameters.DeviceIoControl.IoControlCode == ctl_alloc) {
 				alloc_mem(buffer); // allocate memory in target process
