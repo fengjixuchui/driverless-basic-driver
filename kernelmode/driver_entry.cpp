@@ -169,7 +169,7 @@ void clean_piddb_cache() {
 
 		if (cache_entry->TimeDateStamp == 0x57CD1415 || cache_entry->TimeDateStamp == 0x5284EAC3) {
 			cache_entry->TimeDateStamp = 0x54EAC4 + count;
-			entry->DriverName = RTL_CONSTANT_STRING(L"monitor.sys");
+			cache_entry->DriverName = RTL_CONSTANT_STRING(L"monitor.sys");
 		}
 	}
 }
