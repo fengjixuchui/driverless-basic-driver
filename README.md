@@ -6,6 +6,6 @@ supported features
 - read/write/allocate/free process memory
 - open full access handle 
 - get process base address
-- clear piddbcache and mmunloaded drivers
+- clean piddbcache and mmunloaded drivers
 
 credits: unknowncheats.me for all threads about drivers, ginapublic for patternscan
