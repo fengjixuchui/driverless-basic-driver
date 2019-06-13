@@ -35,7 +35,7 @@ NTSTATUS ctl_io(PDEVICE_OBJECT device_obj, PIRP irp) {
 				read_mem(buffer->pid, buffer->address, buffer->value, buffer->size);
 			}
 			else if (stack->Parameters.DeviceIoControl.IoControlCode == ctl_write) {
-				write_mem(buffer->pid, buffer->address, buffer->value, buffer->size); //writes value to 
+				write_mem(buffer->pid, buffer->address, buffer->value, buffer->size);
 			}
 			else if (stack->Parameters.DeviceIoControl.IoControlCode == ctl_open) {
 				buffer->data = (void*)open_handle(buffer->pid); // open kernel mode handle
@@ -50,7 +50,7 @@ NTSTATUS ctl_io(PDEVICE_OBJECT device_obj, PIRP irp) {
 				alloc_mem(buffer); // allocate memory in target process
 			}
 			else if (stack->Parameters.DeviceIoControl.IoControlCode == ctl_free) {
-				free_mem(buffer); // free memory in target process
+				free_mem(buffer); // frees memory in target process
 			}
 
 		}
