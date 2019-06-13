@@ -35,7 +35,7 @@ NTSTATUS ctl_io(PDEVICE_OBJECT device_obj, PIRP irp) {
 				read_mem(buffer->pid, buffer->address, buffer->value, buffer->size);
 			}
 			else if (stack->Parameters.DeviceIoControl.IoControlCode == ctl_write) {
-				write_mem(buffer->pid, buffer->address, buffer->value, buffer->size); //writes value to 
+				write_mem(buffer->pid, buffer->address, buffer->value, buffer->size);
 			}
 			else if (stack->Parameters.DeviceIoControl.IoControlCode == ctl_open) {
 				buffer->data = (void*)open_handle(buffer->pid); // open kernel mode handle
@@ -44,12 +44,13 @@ NTSTATUS ctl_io(PDEVICE_OBJECT device_obj, PIRP irp) {
 				PEPROCESS pe;
 				PsLookupProcessByProcessId((HANDLE)buffer->pid, &pe);
 				buffer->data = PsGetProcessSectionBaseAddress(pe); //get process base address, also can be done with zwqueryinfo + can get base addresses of modules in process
+				ObfDereferenceObject(pe);
 			}
 			else if (stack->Parameters.DeviceIoControl.IoControlCode == ctl_alloc) {
 				alloc_mem(buffer); // allocate memory in target process
 			}
 			else if (stack->Parameters.DeviceIoControl.IoControlCode == ctl_free) {
-				free_mem(buffer); // free memory in target process
+				free_mem(buffer); // frees memory in target process
 			}
 
 		}
@@ -168,7 +169,7 @@ void clean_piddb_cache() {
 
 		if (cache_entry->TimeDateStamp == 0x57CD1415 || cache_entry->TimeDateStamp == 0x5284EAC3) {
 			cache_entry->TimeDateStamp = 0x54EAC4 + count;
-			entry->DriverName = RTL_CONSTANT_STRING(L"monitor.sys");
+			cache_entry->DriverName = RTL_CONSTANT_STRING(L"monitor.sys");
 		}
 	}
 }
